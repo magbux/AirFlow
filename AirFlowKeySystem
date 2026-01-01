@@ -1,0 +1,463 @@
+-- Airflow Key System Library
+-- Anti-Tamper Protection
+local HttpService = game:GetService("HttpService")
+local TweenService = game:GetService("TweenService")
+local Players = game:GetService("Players")
+local UserInputService = game:GetService("UserInputService")
+
+local KeySystem = {}
+KeySystem.__index = KeySystem
+
+-- Anti-Tamper Variables
+local _protected = {}
+local _authenticated = false
+local _attempts = 3
+local _key = nil
+local _hint = nil
+local _getKeyUrl = nil
+
+-- Security Check
+local function validateIntegrity()
+    if not game:GetService("CoreGui") then
+        Players.LocalPlayer:Kick("Tamper detected!")
+        return false
+    end
+    return true
+end
+
+function KeySystem.new()
+    if not validateIntegrity() then return nil end
+    
+    local self = setmetatable({}, KeySystem)
+    self.GUI = nil
+    self.WindowTitle = "Key System"
+    self.OnAuthenticated = nil
+    return self
+end
+
+function KeySystem:CreateWindow(title)
+    if not validateIntegrity() then return end
+    self.WindowTitle = title or "Key System"
+    self:BuildUI()
+end
+
+function KeySystem:Key(key)
+    _key = tostring(key)
+end
+
+function KeySystem:Hint(enabled, hintText)
+    _hint = enabled and hintText or nil
+end
+
+function KeySystem:GetKey(url)
+    _getKeyUrl = url
+end
+
+function KeySystem:BuildUI()
+    -- Destroy existing GUI
+    if self.GUI then
+        self.GUI:Destroy()
+    end
+    
+    -- Create ScreenGui
+    local screenGui = Instance.new("ScreenGui")
+    screenGui.Name = "KeySystemGUI_" .. HttpService:GenerateGUID(false)
+    screenGui.ResetOnSpawn = false
+    screenGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+    
+    -- Anti-tamper protection
+    screenGui.Parent = game:GetService("CoreGui")
+    self.GUI = screenGui
+    
+    -- Main Frame (Blur Background)
+    local blurFrame = Instance.new("Frame")
+    blurFrame.Name = "BlurBackground"
+    blurFrame.Size = UDim2.new(1, 0, 1, 0)
+    blurFrame.BackgroundColor3 = Color3.fromRGB(0, 0, 0)
+    blurFrame.BackgroundTransparency = 0.3
+    blurFrame.BorderSizePixel = 0
+    blurFrame.Parent = screenGui
+    
+    -- Main Container
+    local mainFrame = Instance.new("Frame")
+    mainFrame.Name = "MainFrame"
+    mainFrame.Size = UDim2.new(0, 400, 0, 300)
+    mainFrame.Position = UDim2.new(0.5, 0, 0.5, 0)
+    mainFrame.AnchorPoint = Vector2.new(0.5, 0.5)
+    mainFrame.BackgroundColor3 = Color3.fromRGB(25, 25, 35)
+    mainFrame.BorderSizePixel = 0
+    mainFrame.Parent = blurFrame
+    
+    -- Corner Radius
+    local corner = Instance.new("UICorner")
+    corner.CornerRadius = UDim.new(0, 12)
+    corner.Parent = mainFrame
+    
+    -- Stroke
+    local stroke = Instance.new("UIStroke")
+    stroke.Color = Color3.fromRGB(60, 60, 80)
+    stroke.Thickness = 2
+    stroke.Parent = mainFrame
+    
+    -- Title Bar
+    local titleBar = Instance.new("Frame")
+    titleBar.Name = "TitleBar"
+    titleBar.Size = UDim2.new(1, 0, 0, 50)
+    titleBar.BackgroundColor3 = Color3.fromRGB(35, 35, 50)
+    titleBar.BorderSizePixel = 0
+    titleBar.Parent = mainFrame
+    
+    local titleCorner = Instance.new("UICorner")
+    titleCorner.CornerRadius = UDim.new(0, 12)
+    titleCorner.Parent = titleBar
+    
+    -- Title Text
+    local titleText = Instance.new("TextLabel")
+    titleText.Name = "TitleText"
+    titleText.Size = UDim2.new(1, -60, 1, 0)
+    titleText.Position = UDim2.new(0, 15, 0, 0)
+    titleText.BackgroundTransparency = 1
+    titleText.Text = self.WindowTitle
+    titleText.TextColor3 = Color3.fromRGB(255, 255, 255)
+    titleText.TextSize = 18
+    titleText.Font = Enum.Font.GothamBold
+    titleText.TextXAlignment = Enum.TextXAlignment.Left
+    titleText.Parent = titleBar
+    
+    -- Key Icon
+    local keyIcon = Instance.new("ImageLabel")
+    keyIcon.Name = "KeyIcon"
+    keyIcon.Size = UDim2.new(0, 24, 0, 24)
+    keyIcon.Position = UDim2.new(1, -40, 0.5, 0)
+    keyIcon.AnchorPoint = Vector2.new(0, 0.5)
+    keyIcon.BackgroundTransparency = 1
+    keyIcon.Image = "rbxassetid://3926305904"
+    keyIcon.ImageColor3 = Color3.fromRGB(100, 150, 255)
+    keyIcon.Parent = titleBar
+    
+    -- Content Frame
+    local contentFrame = Instance.new("Frame")
+    contentFrame.Name = "ContentFrame"
+    contentFrame.Size = UDim2.new(1, -40, 1, -100)
+    contentFrame.Position = UDim2.new(0, 20, 0, 70)
+    contentFrame.BackgroundTransparency = 1
+    contentFrame.Parent = mainFrame
+    
+    -- Status Text
+    local statusText = Instance.new("TextLabel")
+    statusText.Name = "StatusText"
+    statusText.Size = UDim2.new(1, 0, 0, 30)
+    statusText.BackgroundTransparency = 1
+    statusText.Text = "Enter your key to continue"
+    statusText.TextColor3 = Color3.fromRGB(200, 200, 200)
+    statusText.TextSize = 14
+    statusText.Font = Enum.Font.Gotham
+    statusText.Parent = contentFrame
+    
+    -- Attempts Text
+    local attemptsText = Instance.new("TextLabel")
+    attemptsText.Name = "AttemptsText"
+    attemptsText.Size = UDim2.new(1, 0, 0, 20)
+    attemptsText.Position = UDim2.new(0, 0, 0, 35)
+    attemptsText.BackgroundTransparency = 1
+    attemptsText.Text = "Attempts remaining: " .. _attempts
+    attemptsText.TextColor3 = Color3.fromRGB(100, 255, 100)
+    attemptsText.TextSize = 12
+    attemptsText.Font = Enum.Font.Gotham
+    attemptsText.Parent = contentFrame
+    
+    -- Key Input Box
+    local inputFrame = Instance.new("Frame")
+    inputFrame.Name = "InputFrame"
+    inputFrame.Size = UDim2.new(1, 0, 0, 45)
+    inputFrame.Position = UDim2.new(0, 0, 0, 70)
+    inputFrame.BackgroundColor3 = Color3.fromRGB(35, 35, 50)
+    inputFrame.BorderSizePixel = 0
+    inputFrame.Parent = contentFrame
+    
+    local inputCorner = Instance.new("UICorner")
+    inputCorner.CornerRadius = UDim.new(0, 8)
+    inputCorner.Parent = inputFrame
+    
+    local inputBox = Instance.new("TextBox")
+    inputBox.Name = "KeyInput"
+    inputBox.Size = UDim2.new(1, -20, 1, -10)
+    inputBox.Position = UDim2.new(0, 10, 0, 5)
+    inputBox.BackgroundTransparency = 1
+    inputBox.Text = ""
+    inputBox.PlaceholderText = "Enter key here..."
+    inputBox.TextColor3 = Color3.fromRGB(255, 255, 255)
+    inputBox.PlaceholderColor3 = Color3.fromRGB(100, 100, 100)
+    inputBox.TextSize = 16
+    inputBox.Font = Enum.Font.Gotham
+    inputBox.ClearTextOnFocus = false
+    inputBox.Parent = inputFrame
+    
+    -- Submit Button
+    local submitBtn = Instance.new("TextButton")
+    submitBtn.Name = "SubmitButton"
+    submitBtn.Size = UDim2.new(1, 0, 0, 45)
+    submitBtn.Position = UDim2.new(0, 0, 0, 125)
+    submitBtn.BackgroundColor3 = Color3.fromRGB(100, 150, 255)
+    submitBtn.BorderSizePixel = 0
+    submitBtn.Text = "Submit Key"
+    submitBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+    submitBtn.TextSize = 16
+    submitBtn.Font = Enum.Font.GothamBold
+    submitBtn.AutoButtonColor = false
+    submitBtn.Parent = contentFrame
+    
+    local submitCorner = Instance.new("UICorner")
+    submitCorner.CornerRadius = UDim.new(0, 8)
+    submitCorner.Parent = submitBtn
+    
+    -- Get Key Button
+    local getKeyBtn = Instance.new("TextButton")
+    getKeyBtn.Name = "GetKeyButton"
+    getKeyBtn.Size = UDim2.new(1, 0, 0, 35)
+    getKeyBtn.Position = UDim2.new(0, 0, 1, -35)
+    getKeyBtn.BackgroundColor3 = Color3.fromRGB(45, 45, 60)
+    getKeyBtn.BorderSizePixel = 0
+    getKeyBtn.Text = "Get Key"
+    getKeyBtn.TextColor3 = Color3.fromRGB(200, 200, 200)
+    getKeyBtn.TextSize = 14
+    getKeyBtn.Font = Enum.Font.Gotham
+    getKeyBtn.AutoButtonColor = false
+    getKeyBtn.Parent = contentFrame
+    
+    local getKeyCorner = Instance.new("UICorner")
+    getKeyCorner.CornerRadius = UDim.new(0, 8)
+    getKeyCorner.Parent = getKeyBtn
+    
+    -- Hint Button (if enabled)
+    if _hint then
+        local hintBtn = Instance.new("TextButton")
+        hintBtn.Name = "HintButton"
+        hintBtn.Size = UDim2.new(0.48, 0, 0, 35)
+        hintBtn.Position = UDim2.new(0.52, 0, 1, -35)
+        hintBtn.BackgroundColor3 = Color3.fromRGB(255, 200, 100)
+        hintBtn.BorderSizePixel = 0
+        hintBtn.Text = "Hint"
+        hintBtn.TextColor3 = Color3.fromRGB(0, 0, 0)
+        hintBtn.TextSize = 14
+        hintBtn.Font = Enum.Font.GothamBold
+        hintBtn.AutoButtonColor = false
+        hintBtn.Parent = contentFrame
+        
+        local hintCorner = Instance.new("UICorner")
+        hintCorner.CornerRadius = UDim.new(0, 8)
+        hintCorner.Parent = hintBtn
+        
+        getKeyBtn.Size = UDim2.new(0.48, 0, 0, 35)
+        getKeyBtn.Position = UDim2.new(0, 0, 1, -35)
+        
+        hintBtn.MouseButton1Click:Connect(function()
+            statusText.Text = "Hint: " .. _hint
+            statusText.TextColor3 = Color3.fromRGB(255, 200, 100)
+        end)
+    end
+    
+    -- Mobile Support
+    if UserInputService.TouchEnabled and not UserInputService.KeyboardEnabled then
+        mainFrame.Size = UDim2.new(0, 350, 0, 280)
+    end
+    
+    -- Button Animations
+    local function animateButton(button, hover)
+        local goal = hover and {BackgroundColor3 = Color3.fromRGB(120, 170, 255)} or {BackgroundColor3 = Color3.fromRGB(100, 150, 255)}
+        if button == getKeyBtn then
+            goal = hover and {BackgroundColor3 = Color3.fromRGB(60, 60, 80)} or {BackgroundColor3 = Color3.fromRGB(45, 45, 60)}
+        end
+        
+        local tween = TweenService:Create(button, TweenInfo.new(0.2), goal)
+        tween:Play()
+    end
+    
+    submitBtn.MouseEnter:Connect(function() animateButton(submitBtn, true) end)
+    submitBtn.MouseLeave:Connect(function() animateButton(submitBtn, false) end)
+    getKeyBtn.MouseEnter:Connect(function() animateButton(getKeyBtn, true) end)
+    getKeyBtn.MouseLeave:Connect(function() animateButton(getKeyBtn, false) end)
+    
+    -- Submit Button Logic
+    submitBtn.MouseButton1Click:Connect(function()
+        self:ValidateKey(inputBox.Text, statusText, attemptsText, inputBox)
+    end)
+    
+    -- Enter Key Support
+    inputBox.FocusLost:Connect(function(enterPressed)
+        if enterPressed then
+            self:ValidateKey(inputBox.Text, statusText, attemptsText, inputBox)
+        end
+    end)
+    
+    -- Get Key Button Logic
+    getKeyBtn.MouseButton1Click:Connect(function()
+        if _getKeyUrl then
+            setclipboard(_getKeyUrl)
+            statusText.Text = "Key link copied to clipboard!"
+            statusText.TextColor3 = Color3.fromRGB(100, 255, 100)
+            
+            -- Try to open in browser
+            pcall(function()
+                syn.request({
+                    Url = _getKeyUrl,
+                    Method = "GET"
+                })
+            end)
+        end
+    end)
+    
+    -- Entrance Animation
+    mainFrame.Position = UDim2.new(0.5, 0, 1.5, 0)
+    local entranceTween = TweenService:Create(mainFrame, TweenInfo.new(0.5, Enum.EasingStyle.Back, Enum.EasingDirection.Out), {
+        Position = UDim2.new(0.5, 0, 0.5, 0)
+    })
+    entranceTween:Play()
+end
+
+function KeySystem:ValidateKey(input, statusText, attemptsText, inputBox)
+    if not validateIntegrity() then return end
+    
+    if input == _key then
+        -- Correct Key
+        _authenticated = true
+        statusText.Text = "✓ Key accepted! Loading..."
+        statusText.TextColor3 = Color3.fromRGB(100, 255, 100)
+        
+        wait(1)
+        self.GUI:Destroy()
+        
+        if self.OnAuthenticated then
+            self.OnAuthenticated()
+        end
+    else
+        -- Wrong Key
+        _attempts = _attempts - 1
+        
+        if _attempts > 0 then
+            statusText.Text = "✗ Invalid key! Try again."
+            statusText.TextColor3 = Color3.fromRGB(255, 100, 100)
+            attemptsText.Text = _attempts .. " attempts remaining"
+            attemptsText.TextColor3 = _attempts == 1 and Color3.fromRGB(255, 100, 100) or Color3.fromRGB(255, 200, 100)
+            inputBox.Text = ""
+            
+            -- Shake animation
+            local original = self.GUI.BlurBackground.MainFrame.Position
+            for i = 1, 3 do
+                self.GUI.BlurBackground.MainFrame.Position = original + UDim2.new(0, 10, 0, 0)
+                wait(0.05)
+                self.GUI.BlurBackground.MainFrame.Position = original - UDim2.new(0, 10, 0, 0)
+                wait(0.05)
+            end
+            self.GUI.BlurBackground.MainFrame.Position = original
+            
+            -- Reset player
+            if Players.LocalPlayer.Character then
+                Players.LocalPlayer.Character:BreakJoints()
+            end
+        else
+            -- Last attempt - show "Last Words" screen
+            self:ShowLastWordsScreen()
+        end
+    end
+end
+
+function KeySystem:ShowLastWordsScreen()
+    if not validateIntegrity() then return end
+    
+    local mainFrame = self.GUI.BlurBackground.MainFrame
+    
+    -- Clear content
+    mainFrame.ContentFrame:Destroy()
+    mainFrame.Size = UDim2.new(0, 400, 0, 350)
+    
+    -- Last Words Frame
+    local lastWordsFrame = Instance.new("Frame")
+    lastWordsFrame.Name = "LastWordsFrame"
+    lastWordsFrame.Size = UDim2.new(1, -40, 1, -100)
+    lastWordsFrame.Position = UDim2.new(0, 20, 0, 70)
+    lastWordsFrame.BackgroundTransparency = 1
+    lastWordsFrame.Parent = mainFrame
+    
+    -- Warning Icon
+    local warningIcon = Instance.new("ImageLabel")
+    warningIcon.Size = UDim2.new(0, 60, 0, 60)
+    warningIcon.Position = UDim2.new(0.5, 0, 0, 10)
+    warningIcon.AnchorPoint = Vector2.new(0.5, 0)
+    warningIcon.BackgroundTransparency = 1
+    warningIcon.Image = "rbxassetid://3926305904"
+    warningIcon.ImageColor3 = Color3.fromRGB(255, 100, 100)
+    warningIcon.Parent = lastWordsFrame
+    
+    -- Title
+    local title = Instance.new("TextLabel")
+    title.Size = UDim2.new(1, 0, 0, 40)
+    title.Position = UDim2.new(0, 0, 0, 80)
+    title.BackgroundTransparency = 1
+    title.Text = "What are your last words?"
+    title.TextColor3 = Color3.fromRGB(255, 255, 255)
+    title.TextSize = 18
+    title.Font = Enum.Font.GothamBold
+    title.Parent = lastWordsFrame
+    
+    -- Countdown
+    local countdownText = Instance.new("TextLabel")
+    countdownText.Size = UDim2.new(1, 0, 0, 25)
+    countdownText.Position = UDim2.new(0, 0, 0, 125)
+    countdownText.BackgroundTransparency = 1
+    countdownText.Text = "You will be kicked in 10 seconds..."
+    countdownText.TextColor3 = Color3.fromRGB(255, 200, 100)
+    countdownText.TextSize = 14
+    countdownText.Font = Enum.Font.Gotham
+    countdownText.Parent = lastWordsFrame
+    
+    -- Input Box
+    local inputFrame = Instance.new("Frame")
+    inputFrame.Size = UDim2.new(1, 0, 0, 80)
+    inputFrame.Position = UDim2.new(0, 0, 0, 160)
+    inputFrame.BackgroundColor3 = Color3.fromRGB(35, 35, 50)
+    inputFrame.BorderSizePixel = 0
+    inputFrame.Parent = lastWordsFrame
+    
+    local inputCorner = Instance.new("UICorner")
+    inputCorner.CornerRadius = UDim.new(0, 8)
+    inputCorner.Parent = inputFrame
+    
+    local inputBox = Instance.new("TextBox")
+    inputBox.Size = UDim2.new(1, -20, 1, -20)
+    inputBox.Position = UDim2.new(0, 10, 0, 10)
+    inputBox.BackgroundTransparency = 1
+    inputBox.Text = ""
+    inputBox.PlaceholderText = "Type your message..."
+    inputBox.TextColor3 = Color3.fromRGB(255, 255, 255)
+    inputBox.PlaceholderColor3 = Color3.fromRGB(100, 100, 100)
+    inputBox.TextSize = 14
+    inputBox.Font = Enum.Font.Gotham
+    inputBox.TextWrapped = true
+    inputBox.TextXAlignment = Enum.TextXAlignment.Left
+    inputBox.TextYAlignment = Enum.TextYAlignment.Top
+    inputBox.ClearTextOnFocus = false
+    inputBox.MultiLine = true
+    inputBox.Parent = inputFrame
+    
+    -- Countdown Logic
+    local timeLeft = 10
+    spawn(function()
+        for i = 10, 1, -1 do
+            timeLeft = i
+            countdownText.Text = "You will be kicked in " .. i .. " seconds..."
+            wait(1)
+        end
+        
+        -- Kick player
+        local kickMsg = "You have been kicked for too many failed attempts."
+        if inputBox.Text ~= "" then
+            kickMsg = 'Kicked: "' .. inputBox.Text .. '"'
+        end
+        
+        Players.LocalPlayer:Kick(kickMsg)
+    end)
+end
+
+-- Return the library
+return KeySystem
